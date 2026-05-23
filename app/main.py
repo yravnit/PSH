@@ -2,7 +2,7 @@ import subprocess
 import sys
 import os
 
-BUILTINS = ["echo", "exit", "type"]
+BUILTINS = ["echo", "exit", "type", "pwd"]
 
 def find_executable_path(target):
     path_env = os.environ.get("PATH", "")
@@ -43,6 +43,11 @@ def main():
             sys.stdout.write(" ".join(parts[1:]) + "\n")
             sys.stdout.flush()
         
+        # pwd
+        elif command == "pwd":
+            sys.stdout.write(os.getcwd() + "\n")
+            sys.stdout.flush()
+
         # type
         elif command == "type":
             target = parts[1]
