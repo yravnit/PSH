@@ -2,7 +2,7 @@ import subprocess
 import sys
 import os
 
-BUILTINS = ["echo", "exit", "type", "pwd"]
+BUILTINS = ["echo", "exit", "type", "pwd", "cd"]
 
 def find_executable_path(target):
     path_env = os.environ.get("PATH", "")
@@ -47,6 +47,16 @@ def main():
         elif command == "pwd":
             sys.stdout.write(os.getcwd() + "\n")
             sys.stdout.flush()
+
+        # cd
+        elif command == "cd":
+            path = parts[1]
+
+            try:
+                os.chdir(path)
+            except FileNotFoundError:
+                sys.stdout.write(f"cd: {path}: No such file or directory\n")
+                sys.stdout.flush()
 
         # type
         elif command == "type":
