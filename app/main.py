@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import os
 
@@ -60,8 +61,13 @@ def main():
 
         # unknown command
         else:
-            sys.stdout.write(f"{command}: command not found\n")
-            sys.stdout.flush()
+            executable_path = find_executable_path(command)
+
+            if executable_path:
+                subprocess.run(parts)
+            else:
+                sys.stdout.write(f"{command}: command not found\n")
+                sys.stdout.flush()
 
 if __name__ == "__main__":
     main()
