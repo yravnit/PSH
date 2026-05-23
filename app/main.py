@@ -52,6 +52,10 @@ def main():
         elif command == "cd":
             path = parts[1]
 
+            if path == "~":
+                path = os.environ.get("HOME", "")
+
+
             try:
                 os.chdir(path)
             except FileNotFoundError:
