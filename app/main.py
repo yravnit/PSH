@@ -22,17 +22,27 @@ def parse_command(line):
     in_single_quotes = False
     in_double_quotes = False
 
-    for char in line:
+    i = 0
 
-        # Single quote
-        if char == "'" and not in_double_quotes:
+    while i < len(line):
+        char = line[i]
+
+        # Backslash escaping outside quotes
+        if char == "\\" and not in_single_quotes and not in_double_quotes:
+            i += 1
+
+            if i < len(line):
+                current.append(line[i])
+
+        # Single quotes
+        elif char == "'" and not in_double_quotes:
             in_single_quotes = not in_single_quotes
 
-        # Double quote
+        # Double quotes
         elif char == '"' and not in_single_quotes:
             in_double_quotes = not in_double_quotes
 
-        # Token separator only outside quotes
+        # Token separator
         elif char == " " and not in_single_quotes and not in_double_quotes:
             if current:
                 parts.append("".join(current))
@@ -42,7 +52,8 @@ def parse_command(line):
         else:
             current.append(char)
 
-    # Final token
+        i += 1
+
     if current:
         parts.append("".join(current))
 
