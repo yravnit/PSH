@@ -15,6 +15,33 @@ def find_executable_path(target):
 
     return None
 
+def parse_command(line):
+    parts = []
+    current = []
+
+    in_single_quotes = False
+
+    for char in line:
+        # Toggle quote mode
+        if char == "'":
+            in_single_quotes = not in_single_quotes
+
+        # Token separator only outside quotes
+        elif char == " " and not in_single_quotes:
+            if current:
+                parts.append("".join(current))
+                current = []
+
+        # Normal character
+        else:
+            current.append(char)
+
+    # Final token
+    if current:
+        parts.append("".join(current))
+
+    return parts
+
 def main():
     while True:
         sys.stdout.write("$ ")
@@ -26,7 +53,7 @@ def main():
             break
 
         line = line.rstrip("\n")
-        parts = line.split()
+        parts = parse_command(line)
 
         # Empty input
         if len(parts) == 0:
