@@ -27,28 +27,36 @@ def parse_command(line):
     while i < len(line):
         char = line[i]
 
-        # Backslash escaping outside quotes
-        if char == "\\" and not in_single_quotes and not in_double_quotes:
+        # signle quotes mode
+        if char == "'" and not in_double_quotes:
+            in_single_quotes = not in_single_quotes
+
+        # double quotes mode
+        elif char == '"' and not in_single_quotes:
+            in_double_quotes = not in_double_quotes
+
+        # backslash outisde quotes
+        elif char == "\\" and not in_single_quotes and not in_double_quotes:
             i += 1
 
             if i < len(line):
                 current.append(line[i])
 
-        # Single quotes
-        elif char == "'" and not in_double_quotes:
-            in_single_quotes = not in_single_quotes
+        # backslash inside double quotes
+        elif char == "\\" and in_double_quotes:
+            if i + 1 < len(line) and line[i + 1] in ['\\', '"']:
+                i += 1
+                current.append(line[i])
+            else:
+                current.append(char)
 
-        # Double quotes
-        elif char == '"' and not in_single_quotes:
-            in_double_quotes = not in_double_quotes
-
-        # Token separator
+        # token seperator
         elif char == " " and not in_single_quotes and not in_double_quotes:
             if current:
                 parts.append("".join(current))
                 current = []
 
-        # Normal character
+        # normal charachter
         else:
             current.append(char)
 
