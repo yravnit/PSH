@@ -67,6 +67,31 @@ def parse_command(line):
 
     return parts
 
+def extract_redirection(parts):
+    stdout_file = None
+    cleaned_parts = []
+
+    i = 0
+
+    while i < len(parts):
+        if parts[i] in [">", "1>"]:
+            stdout_file = parts[i + 1]
+            i += 2
+        else:
+            cleaned_parts.append(parts[i])
+            i += 1
+
+    return cleaned_parts, stdout_file
+
+
+def write_output(output, stdout_file):
+    if stdout_file:
+        with open(stdout_file, "w") as f:
+            f.write(output)
+    else:
+        sys.stdout.write(output)
+        sys.stdout.flush()
+
 def main():
     while True:
         sys.stdout.write("$ ")
@@ -80,6 +105,8 @@ def main():
         line = line.rstrip("\n")
         parts = parse_command(line)
 
+        parts, stdout_file = extract_redirection(parts)
+
         # Empty input
         if len(parts) == 0:
             continue
@@ -92,16 +119,19 @@ def main():
 
         # echo
         elif command == "echo":
-            sys.stdout.write(" ".join(parts[1:]) + "\n")
-            sys.stdout.flush()
+            output = " ".join(parts[1:]) + "\n"
+            write_output(output, stdout_file)
         
         # pwd
         elif command == "pwd":
-            sys.stdout.write(os.getcwd() + "\n")
-            sys.stdout.flush()
+            output = os.getcwd() + "\n"
+            write_output(output, stdout_file)
 
         # cd
         elif command == "cd":
+
+            if len(parts) < 2:
+                os.environ.get("HOME", "")
             path = parts[1]
 
             if path == "~":
@@ -116,26 +146,33 @@ def main():
 
         # type
         elif command == "type":
+            if len(parts) < 2:
+                continue
+
             target = parts[1]
 
             if target in BUILTINS:
-                sys.stdout.write(f"{target} is a shell builtin\n")
+                output = f"{target} is a shell builtin\n"
             else:
                 executable_path = find_executable_path(target)
 
                 if executable_path:
-                    sys.stdout.write(f"{target} is {executable_path}\n")
+                    output = f"{target} is {executable_path}\n"
                 else:
-                    sys.stdout.write(f"{target}: not found\n")
+                    output = f"{target}: not found\n"
 
-            sys.stdout.flush()
+            write_output(output, stdout_file)
 
         # unknown command
         else:
             executable_path = find_executable_path(command)
 
             if executable_path:
-                subprocess.run(parts)
+                if stdout_file:
+                    with open(stdout_file, "w") as f:
+                        subprocess.run(parts, stdout=f)
+                else:
+                    subprocess.run(parts)
             else:
                 sys.stdout.write(f"{command}: command not found\n")
                 sys.stdout.flush()
