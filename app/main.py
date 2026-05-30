@@ -113,16 +113,45 @@ def write_error(error, stderr_stream):
     stderr_stream.flush()
 
 def completer(text, state):
-    matches = [
-        cmd + " "
-        for cmd in BUILTINS
+
+    commands = set(BUILTINS)
+    commands.update(get_executables())
+    matches = sorted(
+        cmd
+        for cmd in commands
         if cmd.startswith(text)
-    ]
+    )
 
     if state < len(matches):
-        return matches[state]
+        return matches[state] + " "
 
     return None
+
+def get_executables():
+    executables = set()
+
+    path_env = os.environ.get("PATH", "")
+
+    for directory in path_env.split(os.pathsep):
+
+        if not os.path.isdir(directory):
+            continue
+
+        try:
+            for entry in os.listdir(directory):
+
+                full_path = os.path.join(directory, entry)
+
+                if (
+                    os.path.isfile(full_path)
+                    and os.access(full_path, os.X_OK)
+                ):
+                    executables.add(entry)
+
+        except OSError:
+            pass
+
+    return executables
 
 readline.set_completer(completer)
 readline.parse_and_bind("tab: complete")
