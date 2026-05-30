@@ -71,6 +71,9 @@ def extract_redirection(parts):
     stdout_file = None
     stderr_file = None
 
+    append_stdout = False
+    append_stderr = False
+
     cleaned_parts = []
 
     i = 0
@@ -84,11 +87,16 @@ def extract_redirection(parts):
             stderr_file = parts[i + 1]
             i += 2
 
+        elif parts[i] in [">>", "1>>"]:
+            stdout_file = parts[i + 1]
+            append_stdout = True
+            i += 2
+
         else:
             cleaned_parts.append(parts[i])
             i += 1
 
-    return cleaned_parts, stdout_file, stderr_file
+    return cleaned_parts, stdout_file, stderr_file, append_stdout, append_stderr
 
 def write_output(output, stdout_stream):
     stdout_stream.write(output)
@@ -111,7 +119,7 @@ def main():
         line = line.rstrip("\n")
         parts = parse_command(line)
 
-        parts, stdout_file, stderr_file = extract_redirection(parts)
+        parts, stdout_file, stderr_file, append_stdout, append_stderr = extract_redirection(parts)
 
         stdout_stream = sys.stdout
         stderr_stream = sys.stderr
@@ -119,11 +127,13 @@ def main():
         opened_streams = []
         try:
             if stdout_file:
-                stdout_stream = open(stdout_file, "w")
+                mode = "a" if append_stdout else "w"
+                stdout_stream = open(stdout_file, mode)
                 opened_streams.append(stdout_stream)
             
             if stderr_file:
-                stderr_stream = open(stderr_file, "w")
+                mode = "a" if append_stderr else "w"
+                stderr_stream = open(stderr_file, mode)
                 opened_streams.append(stderr_stream)
 
             # Empty input
