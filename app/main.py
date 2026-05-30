@@ -1,3 +1,4 @@
+import readline
 import subprocess
 import sys
 import os
@@ -96,7 +97,7 @@ def extract_redirection(parts):
             stderr_file = parts[i + 1]
             append_stderr = True
             i += 2
-            
+
         else:
             cleaned_parts.append(parts[i])
             i += 1
@@ -111,17 +112,29 @@ def write_error(error, stderr_stream):
     stderr_stream.write(error)
     stderr_stream.flush()
 
+def completer(text, state):
+    matches = [
+        cmd + " "
+        for cmd in BUILTINS
+        if cmd.startswith(text)
+    ]
+
+    if state < len(matches):
+        return matches[state]
+
+    return None
+
+readline.set_completer(completer)
+readline.parse_and_bind("tab: complete")
+
 def main():
     while True:
-        sys.stdout.write("$ ")
-        sys.stdout.flush()
-
-        line = sys.stdin.readline()
-
-        if  not line:
+        
+        try:
+            line = input("$ ")
+        except EOFError:
             break
 
-        line = line.rstrip("\n")
         parts = parse_command(line)
 
         parts, stdout_file, stderr_file, append_stdout, append_stderr = extract_redirection(parts)
