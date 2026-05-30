@@ -83,15 +83,20 @@ def extract_redirection(parts):
             stdout_file = parts[i + 1]
             i += 2
 
-        elif parts[i] == "2>":
-            stderr_file = parts[i + 1]
-            i += 2
-
         elif parts[i] in [">>", "1>>"]:
             stdout_file = parts[i + 1]
             append_stdout = True
             i += 2
 
+        elif parts[i] == "2>":
+            stderr_file = parts[i + 1]
+            i += 2
+
+        elif parts[i] == "2>>":
+            stderr_file = parts[i + 1]
+            append_stderr = True
+            i += 2
+            
         else:
             cleaned_parts.append(parts[i])
             i += 1
