@@ -69,6 +69,8 @@ def parse_command(line):
 
 def extract_redirection(parts):
     stdout_file = None
+    stderr_file = None
+
     cleaned_parts = []
 
     i = 0
@@ -77,20 +79,24 @@ def extract_redirection(parts):
         if parts[i] in [">", "1>"]:
             stdout_file = parts[i + 1]
             i += 2
+
+        elif parts[i] == "2>":
+            stderr_file = parts[i + 1]
+            i += 2
+
         else:
             cleaned_parts.append(parts[i])
             i += 1
 
-    return cleaned_parts, stdout_file
+    return cleaned_parts, stdout_file, stderr_file
 
+def write_output(output, stdout_stream):
+    stdout_stream.write(output)
+    stdout_stream.flush()
 
-def write_output(output, stdout_file):
-    if stdout_file:
-        with open(stdout_file, "w") as f:
-            f.write(output)
-    else:
-        sys.stdout.write(output)
-        sys.stdout.flush()
+def write_error(error, stderr_stream):
+    stderr_stream.write(error)
+    stderr_stream.flush()
 
 def main():
     while True:
@@ -105,77 +111,97 @@ def main():
         line = line.rstrip("\n")
         parts = parse_command(line)
 
-        parts, stdout_file = extract_redirection(parts)
+        parts, stdout_file, stderr_file = extract_redirection(parts)
 
-        # Empty input
-        if len(parts) == 0:
-            continue
+        stdout_stream = sys.stdout
+        stderr_stream = sys.stderr
 
-        command = parts[0] # first part of the line is the command
+        opened_streams = []
+        try:
+            if stdout_file:
+                stdout_stream = open(stdout_file, "w")
+                opened_streams.append(stdout_stream)
+            
+            if stderr_file:
+                stderr_stream = open(stderr_file, "w")
+                opened_streams.append(stderr_stream)
 
-        # exit
-        if command == "exit":
-            break
-
-        # echo
-        elif command == "echo":
-            output = " ".join(parts[1:]) + "\n"
-            write_output(output, stdout_file)
-        
-        # pwd
-        elif command == "pwd":
-            output = os.getcwd() + "\n"
-            write_output(output, stdout_file)
-
-        # cd
-        elif command == "cd":
-
-            if len(parts) < 2:
-                os.environ.get("HOME", "")
-            path = parts[1]
-
-            if path == "~":
-                path = os.environ.get("HOME", "")
-
-
-            try:
-                os.chdir(path)
-            except FileNotFoundError:
-                sys.stdout.write(f"cd: {path}: No such file or directory\n")
-                sys.stdout.flush()
-
-        # type
-        elif command == "type":
-            if len(parts) < 2:
+            # Empty input
+            if len(parts) == 0:
                 continue
 
-            target = parts[1]
+            command = parts[0] # first part of the line is the command
 
-            if target in BUILTINS:
-                output = f"{target} is a shell builtin\n"
+            # exit
+            if command == "exit":
+                break
+
+            # echo
+            elif command == "echo":
+                output = " ".join(parts[1:]) + "\n"
+                write_output(output, stdout_stream)
+            
+            # pwd
+            elif command == "pwd":
+                output = os.getcwd() + "\n"
+                write_output(output, stdout_stream)
+
+            # cd
+            elif command == "cd":
+
+                if len(parts) < 2:
+                    path = os.environ.get("HOME", "")
+                else:
+                    path = parts[1]
+
+                if path == "~":
+                    path = os.environ.get("HOME", "")
+
+
+                try:
+                    os.chdir(path)
+                except FileNotFoundError:
+                    write_error(
+                        f"cd: {path}: No such file or directory\n",
+                        stderr_stream
+                    )
+
+            # type
+            elif command == "type":
+                if len(parts) < 2:
+                    continue
+
+                target = parts[1]
+
+                if target in BUILTINS:
+                    output = f"{target} is a shell builtin\n"
+                else:
+                    executable_path = find_executable_path(target)
+
+                    if executable_path:
+                        output = f"{target} is {executable_path}\n"
+                    else:
+                        output = f"{target}: not found\n"
+
+                write_output(output, stdout_stream)
+
+            # unknown command
             else:
-                executable_path = find_executable_path(target)
+                executable_path = find_executable_path(command)
 
                 if executable_path:
-                    output = f"{target} is {executable_path}\n"
+                    subprocess.run(
+                        parts,
+                        stdout=stdout_stream,
+                        stderr=stderr_stream
+                    )
                 else:
-                    output = f"{target}: not found\n"
-
-            write_output(output, stdout_file)
-
-        # unknown command
-        else:
-            executable_path = find_executable_path(command)
-
-            if executable_path:
-                if stdout_file:
-                    with open(stdout_file, "w") as f:
-                        subprocess.run(parts, stdout=f)
-                else:
-                    subprocess.run(parts)
-            else:
-                sys.stdout.write(f"{command}: command not found\n")
-                sys.stdout.flush()
-
+                    write_error(
+                        f"{command}: command not found\n",
+                        stderr_stream
+                    )
+        finally:
+            for stream in opened_streams:
+                stream.close()
 if __name__ == "__main__":
     main()
