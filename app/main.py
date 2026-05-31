@@ -114,13 +114,11 @@ def write_error(error, stderr_stream):
 
 def completer(text, state):
 
-    commands = set(BUILTINS)
-    commands.update(get_executables())
-    matches = sorted(
-        cmd
-        for cmd in commands
-        if cmd.startswith(text)
-    )
+    line = readline.get_line_buffer()
+    if " " not in line:
+        matches = complete_commands(text)
+    else:
+        matches = complete_filenames(text)
 
     if state < len(matches):
         return matches[state] + " "
@@ -153,6 +151,25 @@ def get_executables():
 
     return executables
 
+def complete_commands(text):
+
+    commands = set(BUILTINS)
+    commands.update(get_executables())
+
+    return sorted(
+        command
+        for command in commands
+        if command.startswith(text)
+    )
+
+def complete_filenames(text):
+
+    return sorted(
+        filename
+        for filename in os.listdir(".")
+        if filename.startswith(text)
+    )
+    
 readline.set_completer(completer)
 readline.parse_and_bind("tab: complete")
 
