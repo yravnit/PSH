@@ -172,7 +172,7 @@ def complete_filenames(text):
     
 readline.set_completer(completer)
 readline.parse_and_bind("tab: complete")
-
+readline.set_completer_delims(" \t\n")
 def main():
     while True:
         
