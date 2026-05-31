@@ -164,6 +164,18 @@ def complete_commands(text):
 
 def complete_filenames(text):
 
+    if "/" in text:
+        directory, prefix = text.rsplit("/", 1)
+
+        try:
+            return sorted(
+                f"{directory}/{entry}"
+                for entry in os.listdir(directory)
+                if entry.startswith(prefix)
+            )
+        except OSError:
+            return []
+
     return sorted(
         filename
         for filename in os.listdir(".")
