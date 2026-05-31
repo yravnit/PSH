@@ -115,13 +115,14 @@ def write_error(error, stderr_stream):
 def completer(text, state):
 
     line = readline.get_line_buffer()
+
     if " " not in line:
         matches = complete_commands(text)
     else:
         matches = complete_filenames(text)
 
     if state < len(matches):
-        return matches[state] + " "
+        return matches[state]
 
     return None
 
@@ -157,34 +158,48 @@ def complete_commands(text):
     commands.update(get_executables())
 
     return sorted(
-        command
+        command + " "
         for command in commands
         if command.startswith(text)
     )
 
 def complete_filenames(text):
 
+    matches = []
+
     if "/" in text:
         directory, prefix = text.rsplit("/", 1)
 
         try:
-            return sorted(
-                f"{directory}/{entry}"
-                for entry in os.listdir(directory)
-                if entry.startswith(prefix)
-            )
-        except OSError:
-            return []
+            for entry in os.listdir(directory):
+                if entry.startswith(prefix):
 
-    return sorted(
-        filename
-        for filename in os.listdir(".")
-        if filename.startswith(text)
-    )
+                    full_path = os.path.join(directory, entry)
+
+                    if os.path.isdir(full_path):
+                        matches.append(f"{directory}/{entry}/")
+                    else:
+                        matches.append(f"{directory}/{entry} ")
+
+        except OSError:
+            pass
+
+    else:
+        for entry in os.listdir("."):
+
+            if entry.startswith(text):
+
+                if os.path.isdir(entry):
+                    matches.append(entry + "/")
+                else:
+                    matches.append(entry + " ")
+
+    return sorted(matches)
     
 readline.set_completer(completer)
 readline.parse_and_bind("tab: complete")
 readline.set_completer_delims(" \t\n")
+
 def main():
     while True:
         
