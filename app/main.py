@@ -3,7 +3,7 @@ import subprocess
 import sys
 import os
 
-BUILTINS = ["echo", "exit", "type", "pwd", "cd"]
+BUILTINS = ["echo", "exit", "type", "pwd", "cd", "jobs"]
 
 def find_executable_path(target):
     path_env = os.environ.get("PATH", "")
@@ -286,6 +286,11 @@ def main():
 
                 write_output(output, stdout_stream)
 
+
+            # jobs
+            elif command == "jobs":
+                pass
+            
             # unknown command
             else:
                 executable_path = find_executable_path(command)
