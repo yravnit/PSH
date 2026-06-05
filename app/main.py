@@ -299,6 +299,8 @@ def main():
 
             # jobs
             elif command == "jobs":
+                
+                jobs_to_remove = []
 
                 for index, job in enumerate(jobs):
 
@@ -309,15 +311,26 @@ def main():
                     else:
                         marker = " "
 
-                    status = "Running"
+                    if job["process"].poll() is None:
+                        status = "Running"
+                    else:
+                        status = "Done"
+                        jobs_to_remove.append(job)
+
+                    command_text = job["command"]
+                    if status == "Done":
+                        command_text = command_text.removesuffix(" &")
 
                     output = (
                         f"[{job['job_id']}]{marker}  "
                         f"{status:<24}"
-                        f"{job['command']}\n"
+                        f"{command_text}\n"
                     )
-            
+
                     write_output(output, stdout_stream)
+
+                for job in jobs_to_remove:
+                    jobs.remove(job)
 
             # unknown command
             else:
