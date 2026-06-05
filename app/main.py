@@ -210,6 +210,12 @@ def main():
 
         parts = parse_command(line)
 
+        background = False
+
+        if parts and parts[-1] ==  "&":
+            background = True
+            parts.pop()
+
         parts, stdout_file, stderr_file, append_stdout, append_stderr = extract_redirection(parts)
 
         stdout_stream = sys.stdout
@@ -296,11 +302,23 @@ def main():
                 executable_path = find_executable_path(command)
 
                 if executable_path:
-                    subprocess.run(
-                        parts,
-                        stdout=stdout_stream,
-                        stderr=stderr_stream
-                    )
+                    if background:
+                        process = subprocess.Popen(
+                            parts,
+                            stdout=stdout_stream,
+                            stderr=stderr_stream
+                        )
+
+                        write_output(
+                            f"[1] {process.pid}\n",
+                            stdout_stream
+                        )
+                    else:
+                        subprocess.run(
+                            parts,
+                            stdout=stdout_stream,
+                            stderr=stderr_stream
+                        )
                 else:
                     write_error(
                         f"{command}: command not found\n",
