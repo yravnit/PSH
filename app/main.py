@@ -5,6 +5,8 @@ import os
 
 BUILTINS = ["echo", "exit", "type", "pwd", "cd", "jobs"]
 
+jobs = []
+
 def find_executable_path(target):
     path_env = os.environ.get("PATH", "")
 
@@ -207,6 +209,8 @@ def main():
             line = input("$ ")
         except EOFError:
             break
+        
+        original_command = line
 
         parts = parse_command(line)
 
@@ -295,7 +299,18 @@ def main():
 
             # jobs
             elif command == "jobs":
-                pass
+
+                for job in jobs:
+
+                    status = "Running"
+
+                    output = (
+                        f"[{job['job_id']}]+ "
+                        f"{status:<24}"
+                        f"{job["command"]}\n"
+                    )
+
+                    write_output(output, stdout_stream)
             
             # unknown command
             else:
@@ -303,12 +318,17 @@ def main():
 
                 if executable_path:
                     if background:
-                        process = subprocess.Popen(
-                            parts,
-                        )
+                        process = subprocess.Popen(parts)
+
+                        jobs.append({
+                            "job_id": len(jobs) + 1,
+                            "pid": process.pid,
+                            "command": original_command,
+                            "process": process
+                        })
 
                         write_output(
-                            f"[1] {process.pid}\n",
+                            f"[{len(jobs)}] {process.pid}\n",
                             stdout_stream
                         )
                     else:
