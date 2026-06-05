@@ -305,8 +305,6 @@ def main():
                     if background:
                         process = subprocess.Popen(
                             parts,
-                            stdout=stdout_stream,
-                            stderr=stderr_stream
                         )
 
                         write_output(
