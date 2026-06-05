@@ -300,18 +300,25 @@ def main():
             # jobs
             elif command == "jobs":
 
-                for job in jobs:
+                for index, job in enumerate(jobs):
+
+                    if index == len(jobs) - 1:
+                        marker = "+"
+                    elif index == len(jobs) - 2:
+                        marker = "-"
+                    else:
+                        marker = " "
 
                     status = "Running"
 
                     output = (
-                        f"[{job['job_id']}]+ "
+                        f"[{job['job_id']}]{marker}  "
                         f"{status:<24}"
-                        f"{job["command"]}\n"
+                        f"{job['command']}\n"
                     )
-
-                    write_output(output, stdout_stream)
             
+                    write_output(output, stdout_stream)
+
             # unknown command
             else:
                 executable_path = find_executable_path(command)
