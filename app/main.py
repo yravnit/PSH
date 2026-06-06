@@ -273,6 +273,30 @@ def main():
             if len(parts) == 0:
                 continue
 
+            if "|"  in parts:
+
+                pipe_index = parts.index("|")
+
+                left_cmd = parts[:pipe_index]
+                right_cmd = parts[pipe_index + 1:]
+
+                p1 = subprocess.Popen(
+                    left_cmd,
+                    stdout=subprocess.PIPE
+                )
+
+                p2 = subprocess.Popen(
+                    right_cmd,
+                    stdin=p1.stdout
+                )
+
+                p1.stdout.close()
+
+                p2.wait()
+                p1.wait()
+
+                continue
+
             command = parts[0] # first part of the line is the command
 
             # exit
