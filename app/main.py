@@ -198,6 +198,36 @@ def complete_filenames(text):
 
     return sorted(matches)
     
+def reap_jobs(stdout_stream):
+    jobs_to_remove = []
+
+    for index, job in enumerate(jobs):
+
+        if job["process"].poll() is None:
+            continue
+
+        if index == len(jobs) - 1:
+            marker = "+"
+        elif index == len(jobs) - 2:
+            marker = "-"
+        else:
+            marker = " "
+
+        command_text = job["command"].removesuffix(" &")
+
+        output = (
+            f"[{job['job_id']}]{marker}  "
+            f"{'Done':<24}"
+            f"{command_text}\n"
+        )
+
+        write_output(output, stdout_stream)
+
+        jobs_to_remove.append(job)
+
+    for job in jobs_to_remove:
+            jobs.remove(job)
+
 readline.set_completer(completer)
 readline.parse_and_bind("tab: complete")
 readline.set_completer_delims(" \t\n")
@@ -205,6 +235,8 @@ readline.set_completer_delims(" \t\n")
 def main():
     while True:
         
+        reap_jobs(sys.stdout)
+
         try:
             line = input("$ ")
         except EOFError:
@@ -299,9 +331,9 @@ def main():
 
             # jobs
             elif command == "jobs":
-                
-                jobs_to_remove = []
 
+                jobs_to_remove = []
+                
                 for index, job in enumerate(jobs):
 
                     if index == len(jobs) - 1:
@@ -313,20 +345,18 @@ def main():
 
                     if job["process"].poll() is None:
                         status = "Running"
+                        command_text = job["command"]
                     else:
                         status = "Done"
+                        command_text = job["command"].removesuffix(" &")
                         jobs_to_remove.append(job)
-
-                    command_text = job["command"]
-                    if status == "Done":
-                        command_text = command_text.removesuffix(" &")
 
                     output = (
                         f"[{job['job_id']}]{marker}  "
                         f"{status:<24}"
                         f"{command_text}\n"
                     )
-
+            
                     write_output(output, stdout_stream)
 
                 for job in jobs_to_remove:
