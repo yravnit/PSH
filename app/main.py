@@ -2,6 +2,7 @@ import readline
 import subprocess
 import sys
 import os
+from io import StringIO
 
 BUILTINS = ["echo", "exit", "type", "pwd", "cd", "jobs"]
 
@@ -232,6 +233,202 @@ readline.set_completer(completer)
 readline.parse_and_bind("tab: complete")
 readline.set_completer_delims(" \t\n")
 
+def split_pipeline(parts):
+
+    commands = []
+    current = []
+
+    for token in parts:
+
+        if token == "|":
+            commands.append(current)
+            current = []
+        else:
+            current.append(token)
+
+    commands.append(current)
+
+    return commands
+
+def run_pipeline(commands):
+
+    processes = []
+
+    previous_pipe = None
+
+    for index, command in enumerate(commands):
+
+        last_command = (
+            index == len(commands) - 1
+        )
+
+        # BUILTIN
+        if is_builtin(command[0]):
+
+            if previous_pipe:
+                previous_pipe.close()
+
+            output = run_builtin_capture(
+                command
+            )
+
+            if last_command:
+
+                sys.stdout.buffer.write(
+                    output
+                )
+                sys.stdout.flush()
+
+            else:
+
+                read_end, write_end = os.pipe()
+
+                os.write(
+                    write_end,
+                    output
+                )
+
+                os.close(write_end)
+
+                previous_pipe = os.fdopen(
+                    read_end,
+                    "rb"
+                )
+
+        # EXTERNAL
+        else:
+
+            stdout_target = (
+                None
+                if last_command
+                else subprocess.PIPE
+            )
+
+            process = subprocess.Popen(
+                command,
+                stdin=previous_pipe,
+                stdout=stdout_target
+            )
+
+            if previous_pipe:
+                previous_pipe.close()
+
+            if not last_command:
+                previous_pipe = (
+                    process.stdout
+                )
+
+            processes.append(
+                process
+            )
+
+    for process in processes:
+        process.wait()
+
+def run_builtin_capture(parts):
+
+    buffer = StringIO()
+
+    BUILTIN_HANDLERS[parts[0]](
+        parts,
+        buffer,
+        sys.stderr
+    )
+
+    return buffer.getvalue().encode()
+
+def builtin_echo(parts, stdout_stream, stderr_stream):
+    write_output(
+        " ".join(parts[1:]) + '\n',
+        stdout_stream
+    )
+
+def builtin_pwd(parts, stdout_stream, stderr_stream):
+    write_output(
+        os.getcwd() + "\n",
+        stdout_stream
+    )
+
+def builtin_type(parts, stdout_stream, stderr_stream):
+
+    if len(parts) < 2:
+        return
+
+    target = parts[1]
+
+    if target in BUILTINS:
+        output = f"{target} is a shell builtin\n"
+    else:
+        executable_path = find_executable_path(target)
+
+        if executable_path:
+            output = f"{target} is {executable_path}\n"
+        else:
+            output = f"{target}: not found\n"
+
+    write_output(output, stdout_stream)
+
+def builtin_cd(parts, stdout_stream, stderr_stream):
+
+    if len(parts) < 2:
+        path = os.environ.get("HOME", "")
+    else:
+        path = parts[1]
+
+    if path == "~":
+        path = os.environ.get("HOME", "")
+
+
+    try:
+        os.chdir(path)
+    except FileNotFoundError:
+        write_error(
+            f"cd: {path}: No such file or directory\n",
+            stderr_stream
+        )
+
+def builtin_jobs(parts, stdout_stream, stderr_stream):
+    jobs_to_remove = []
+                
+    for index, job in enumerate(jobs):
+
+        if index == len(jobs) - 1:
+            marker = "+"
+        elif index == len(jobs) - 2:
+            marker = "-"
+        else:
+            marker = " "
+
+        if job["process"].poll() is None:
+            status = "Running"
+            command_text = job["command"]
+        else:
+            status = "Done"
+            command_text = job["command"].removesuffix(" &")
+            jobs_to_remove.append(job)
+
+        output = (
+            f"[{job['job_id']}]{marker}  "
+            f"{status:<24}"
+            f"{command_text}\n"
+        )
+
+        write_output(output, stdout_stream)
+
+    for job in jobs_to_remove:
+        jobs.remove(job)
+
+BUILTIN_HANDLERS = {
+    "echo": builtin_echo,
+    "pwd": builtin_pwd,
+    "type": builtin_type,
+    "cd": builtin_cd,
+    "jobs": builtin_jobs,
+}
+
+def is_builtin(command):
+    return command in BUILTIN_HANDLERS
+
 def main():
     while True:
         
@@ -275,25 +472,9 @@ def main():
 
             if "|"  in parts:
 
-                pipe_index = parts.index("|")
+                commands = split_pipeline(parts)
 
-                left_cmd = parts[:pipe_index]
-                right_cmd = parts[pipe_index + 1:]
-
-                p1 = subprocess.Popen(
-                    left_cmd,
-                    stdout=subprocess.PIPE
-                )
-
-                p2 = subprocess.Popen(
-                    right_cmd,
-                    stdin=p1.stdout
-                )
-
-                p1.stdout.close()
-
-                p2.wait()
-                p1.wait()
+                run_pipeline(commands)
 
                 continue
 
@@ -303,88 +484,13 @@ def main():
             if command == "exit":
                 break
 
-            # echo
-            elif command == "echo":
-                output = " ".join(parts[1:]) + "\n"
-                write_output(output, stdout_stream)
-            
-            # pwd
-            elif command == "pwd":
-                output = os.getcwd() + "\n"
-                write_output(output, stdout_stream)
+            elif is_builtin(command):
 
-            # cd
-            elif command == "cd":
-
-                if len(parts) < 2:
-                    path = os.environ.get("HOME", "")
-                else:
-                    path = parts[1]
-
-                if path == "~":
-                    path = os.environ.get("HOME", "")
-
-
-                try:
-                    os.chdir(path)
-                except FileNotFoundError:
-                    write_error(
-                        f"cd: {path}: No such file or directory\n",
-                        stderr_stream
-                    )
-
-            # type
-            elif command == "type":
-                if len(parts) < 2:
-                    continue
-
-                target = parts[1]
-
-                if target in BUILTINS:
-                    output = f"{target} is a shell builtin\n"
-                else:
-                    executable_path = find_executable_path(target)
-
-                    if executable_path:
-                        output = f"{target} is {executable_path}\n"
-                    else:
-                        output = f"{target}: not found\n"
-
-                write_output(output, stdout_stream)
-
-
-            # jobs
-            elif command == "jobs":
-
-                jobs_to_remove = []
-                
-                for index, job in enumerate(jobs):
-
-                    if index == len(jobs) - 1:
-                        marker = "+"
-                    elif index == len(jobs) - 2:
-                        marker = "-"
-                    else:
-                        marker = " "
-
-                    if job["process"].poll() is None:
-                        status = "Running"
-                        command_text = job["command"]
-                    else:
-                        status = "Done"
-                        command_text = job["command"].removesuffix(" &")
-                        jobs_to_remove.append(job)
-
-                    output = (
-                        f"[{job['job_id']}]{marker}  "
-                        f"{status:<24}"
-                        f"{command_text}\n"
-                    )
-            
-                    write_output(output, stdout_stream)
-
-                for job in jobs_to_remove:
-                    jobs.remove(job)
+                BUILTIN_HANDLERS[command](
+                    parts,
+                    stdout_stream,
+                    stderr_stream
+                )
 
             # unknown command
             else:
