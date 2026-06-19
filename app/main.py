@@ -6,6 +6,7 @@ from io import StringIO
 
 jobs = []
 history = []
+variables = {}
 history_cursor = 0
 
 def find_executable_path(target):
@@ -529,6 +530,29 @@ def save_history_on_exit():
     except OSError:
         pass
 
+def builtin_declare(parts, stdout_stream, stderr_stream):
+    
+    # declare -p NAME
+    if len(parts) == 3 and parts[1] == "-p":
+        name = parts[2]
+
+        if name in variables:
+            write_output(
+                f'declare -- {name}="{variables[name]}"\n',
+                stdout_stream
+            )
+        else:
+            write_error(
+                f"declare: {name}: not found\n",
+                stderr_stream
+            )
+        return 
+
+    # declare Name=valur
+    if len(parts) == 2 and "=" in parts[1]:
+        name, value = parts[1].split("=", 1)
+        variables[name] = value
+
 BUILTIN_HANDLERS = {
     "echo": builtin_echo,
     "pwd": builtin_pwd,
@@ -537,6 +561,7 @@ BUILTIN_HANDLERS = {
     "jobs": builtin_jobs,
     "history": builtin_history,
     "exit": builtin_exit,
+    "declare": builtin_declare,
 }
 
 def is_builtin(command):
