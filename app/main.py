@@ -419,6 +419,9 @@ def builtin_jobs(parts, stdout_stream, stderr_stream):
         jobs.remove(job)
 
 def builtin_exit(parts, stdout_stream, stderr_stream):
+
+    save_history_on_exit()
+
     sys.exit(0)
 
 def builtin_history(parts, stdout_stream, stderr_stream):
@@ -511,6 +514,18 @@ def load_history_on_startup():
 
     try:
         history_read(histfile)
+    except OSError:
+        pass
+
+def save_history_on_exit():
+
+    histfile = os.environ.get("HISTFILE")
+
+    if not histfile:
+        return
+
+    try:
+        history_write(histfile)
     except OSError:
         pass
 
