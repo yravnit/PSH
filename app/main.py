@@ -419,6 +419,20 @@ def builtin_jobs(parts, stdout_stream, stderr_stream):
 
 def builtin_history(parts, stdout_stream, stderr_stream):
 
+        # history -w <file>
+    if len(parts) == 3 and parts[1] == "-w":
+
+        try:
+            with open(parts[2], "w") as file:
+
+                for command in history:
+                    file.write(command + "\n")
+
+        except OSError:
+            pass
+
+        return
+
     # history -r <file>
     if len(parts) == 3 and parts[1] == "-r":
 
