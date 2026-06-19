@@ -4,9 +4,8 @@ import sys
 import os
 from io import StringIO
 
-BUILTINS = ["echo", "exit", "type", "pwd", "cd", "jobs"]
-
 jobs = []
+history = []
 
 def find_executable_path(target):
     path_env = os.environ.get("PATH", "")
@@ -157,7 +156,7 @@ def get_executables():
 
 def complete_commands(text):
 
-    commands = set(BUILTINS)
+    commands = set(BUILTIN_HANDLERS)
     commands.update(get_executables())
 
     return sorted(
@@ -356,7 +355,7 @@ def builtin_type(parts, stdout_stream, stderr_stream):
 
     target = parts[1]
 
-    if target in BUILTINS:
+    if target in BUILTIN_HANDLERS:
         output = f"{target} is a shell builtin\n"
     else:
         executable_path = find_executable_path(target)
@@ -418,12 +417,24 @@ def builtin_jobs(parts, stdout_stream, stderr_stream):
     for job in jobs_to_remove:
         jobs.remove(job)
 
+def builtin_history(parts, stdout_stream, stderr_stream):
+    for index, command in enumerate(history, start=1):
+        write_output(
+            f"    {index}  {command}\n",
+            stdout_stream
+        )
+
+def builtin_exit(parts, stdout_stream, stderr_stream):
+    sys.exit(0)
+
 BUILTIN_HANDLERS = {
     "echo": builtin_echo,
     "pwd": builtin_pwd,
     "type": builtin_type,
     "cd": builtin_cd,
     "jobs": builtin_jobs,
+    "history": builtin_history,
+    "exit": builtin_exit,
 }
 
 def is_builtin(command):
@@ -438,6 +449,9 @@ def main():
             line = input("$ ")
         except EOFError:
             break
+
+        if line.strip():
+            history.append(line)
         
         original_command = line
 
