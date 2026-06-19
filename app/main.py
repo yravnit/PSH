@@ -502,6 +502,18 @@ def history_append(path):
 
     history_cursor = len(history)
 
+def load_history_on_startup():
+
+    histfile = os.environ.get("HISTFILE")
+
+    if not histfile:
+        return
+
+    try:
+        history_read(histfile)
+    except OSError:
+        pass
+
 BUILTIN_HANDLERS = {
     "echo": builtin_echo,
     "pwd": builtin_pwd,
@@ -611,4 +623,5 @@ def main():
             for stream in opened_streams:
                 stream.close()
 if __name__ == "__main__":
+    load_history_on_startup()
     main()
