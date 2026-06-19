@@ -418,7 +418,26 @@ def builtin_jobs(parts, stdout_stream, stderr_stream):
         jobs.remove(job)
 
 def builtin_history(parts, stdout_stream, stderr_stream):
-    for index, command in enumerate(history, start=1):
+
+    if len(parts) > 1:
+        try:
+            limit = int(parts[1])
+
+            start_index = max(0,len(history) - limit)
+
+            entries = history[start_index:]
+
+        except ValueError:
+            return
+
+    else:
+        start_index = 0
+        entries = history
+
+    for index, command in enumerate(
+        entries,
+        start=start_index + 1
+    ):
         write_output(
             f"    {index}  {command}\n",
             stdout_stream
