@@ -419,11 +419,34 @@ def builtin_jobs(parts, stdout_stream, stderr_stream):
 
 def builtin_history(parts, stdout_stream, stderr_stream):
 
+    # history -r <file>
+    if len(parts) == 3 and parts[1] == "-r":
+
+        try:
+            with open(parts[2], "r") as file:
+
+                for line in file:
+
+                    command = line.rstrip("\n")
+
+                    if command:
+                        history.append(command)
+
+        except FileNotFoundError:
+            pass
+
+        return
+
+    # history <n>
     if len(parts) > 1:
+
         try:
             limit = int(parts[1])
 
-            start_index = max(0,len(history) - limit)
+            start_index = max(
+                0,
+                len(history) - limit
+            )
 
             entries = history[start_index:]
 
