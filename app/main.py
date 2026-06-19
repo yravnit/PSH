@@ -6,6 +6,7 @@ from io import StringIO
 
 jobs = []
 history = []
+history_cursor = 0
 
 def find_executable_path(target):
     path_env = os.environ.get("PATH", "")
@@ -417,39 +418,31 @@ def builtin_jobs(parts, stdout_stream, stderr_stream):
     for job in jobs_to_remove:
         jobs.remove(job)
 
+def builtin_exit(parts, stdout_stream, stderr_stream):
+    sys.exit(0)
+
 def builtin_history(parts, stdout_stream, stderr_stream):
 
-        # history -w <file>
-    if len(parts) == 3 and parts[1] == "-w":
+    if len(parts) == 3:
+
+        flag = parts[1]
+        path = parts[2]
 
         try:
-            with open(parts[2], "w") as file:
+            if flag == "-r":
+                history_read(path)
+                return
 
-                for command in history:
-                    file.write(command + "\n")
+            if flag == "-w":
+                history_write(path)
+                return
+
+            if flag == "-a":
+                history_append(path)
+                return
 
         except OSError:
-            pass
-
-        return
-
-    # history -r <file>
-    if len(parts) == 3 and parts[1] == "-r":
-
-        try:
-            with open(parts[2], "r") as file:
-
-                for line in file:
-
-                    command = line.rstrip("\n")
-
-                    if command:
-                        history.append(command)
-
-        except FileNotFoundError:
-            pass
-
-        return
+            return
 
     # history <n>
     if len(parts) > 1:
@@ -480,8 +473,34 @@ def builtin_history(parts, stdout_stream, stderr_stream):
             stdout_stream
         )
 
-def builtin_exit(parts, stdout_stream, stderr_stream):
-    sys.exit(0)
+def history_read(path):
+    global history_cursor
+
+    with open(path, "r") as file:
+        for line in file:
+            command = line.rstrip("\n")
+            if command:
+                history.append(command)
+
+    history_cursor = len(history)
+
+def history_write(path):
+    global history_cursor
+
+    with open(path, "w") as file:
+        for command in history:
+            file.write(command + "\n")
+
+    history_cursor = len(history)
+
+def history_append(path):
+    global history_cursor
+
+    with open(path, "a") as file:
+        for command in history[history_cursor:]:
+            file.write(command + "\n")
+
+    history_cursor = len(history)
 
 BUILTIN_HANDLERS = {
     "echo": builtin_echo,
@@ -515,7 +534,7 @@ def main():
 
         background = False
 
-        if parts and parts[-1] ==  "&":
+        if parts and parts[-1] == "&":
             background = True
             parts.pop()
 
@@ -550,11 +569,7 @@ def main():
 
             command = parts[0] # first part of the line is the command
 
-            # exit
-            if command == "exit":
-                break
-
-            elif is_builtin(command):
+            if is_builtin(command):
 
                 BUILTIN_HANDLERS[command](
                     parts,
