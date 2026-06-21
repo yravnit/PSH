@@ -10,7 +10,7 @@ history = []
 variables = {}
 history_cursor = 0
 VAR_PATTERN = re.compile(
-    r'\$([A-Za-z_][A-Za-z0-9_]*)'
+    r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)'
 )
 
 def find_executable_path(target):
@@ -579,16 +579,16 @@ def expand_variables(parts):
     expanded = []
 
     for part in parts:
-
-        expanded.append(
-            VAR_PATTERN.sub(
-                lambda m: variables.get(
-                    m.group(1),
-                    ""
-                ),
-                part
-            )
+        part = VAR_PATTERN.sub(
+            lambda m: variables.get(
+                m.group(1) or m.group(2),
+                ""
+            ),
+            part
         )
+        expanded.append(part)
+
+    return expanded
 
     return expanded
 BUILTIN_HANDLERS = {
