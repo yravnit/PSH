@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/yravnit/PSH/actions/workflows/ci.yml/badge.svg)](https://github.com/yravnit/PSH/actions/workflows/ci.yml)
 
-A POSIX-compliant interactive command shell implemented in Python using standard library modules (`os`, `subprocess`, `sys`, `readline`, `re`).
+A POSIX-compliant interactive command shell implemented in Python. Core execution uses standard library modules (`os`, `subprocess`, `sys`, `re`). The interactive prompt uses `prompt_toolkit` for live syntax highlighting and line editing.
 
-The project provides a self-contained shell environment that parses user input, resolves system executables, executes built-in routines, orchestrates multi-stage process pipelines, manages asynchronous background jobs, evaluates conditional execution chains, tracks process exit statuses, and provides interactive command-line editing.
+The shell parses user input, resolves system executables, executes built-in routines, orchestrates multi-stage process pipelines, manages asynchronous background jobs, evaluates conditional execution chains, tracks process exit statuses, and colors commands as you type.
 
 ## Architecture and Implementation
 
@@ -34,7 +34,11 @@ flowchart LR
     P --> C
 
     N --> Q["jobs / reap_jobs"]
+
     A -.-> R["History + Autocomplete"]
+    A -.-> S["Syntax Highlighter"]
+    S --> T["Executable Cache"]
+    T -.->|background thread| H
 ```
 
 ### Tokenizer and parser
@@ -88,8 +92,23 @@ Commands ending with `&` execute asynchronously via `subprocess.Popen`. The shel
 ### Variable expansion
 Command parameters undergo variable expansion before execution. The expansion engine uses regex pattern matching to resolve `$VAR`, `${VAR}`, `$?`, and `${?}` notations against declared variables, exit codes, and environment variables. Arguments that evaluate to empty strings from unset variables are pruned.
 
-### Autocompletion and readline integration
-The completer hook integrates with GNU readline. When the input buffer contains a single token, it queries built-in handlers and scans directories in the `PATH` environment variable for executable files. When multiple tokens are present, it performs path completion against files and directories in the filesystem.
+### Syntax highlighting
+The shell colors input as you type using a custom `prompt_toolkit` lexer (`ShellLexer`). A separate tokenizer (`_tokenize_for_highlight`) walks the input buffer and classifies each span:
+
+| Token type | Color | Examples |
+|---|---|---|
+| Shell builtins | Green | `echo`, `cd`, `exit` |
+| Valid executables | Cyan | `git`, `python`, `ls` |
+| Unknown commands | Red | misspelled or missing commands |
+| Quoted strings | Yellow | `"hello"`, `'world'` |
+| Operators | Pink | `&&`, `\|`, `>` |
+| Variables | Purple | `$HOME`, `${?}` |
+| Arguments | Default | everything else |
+
+The set of valid executable names is built by scanning `PATH` directories in a background thread (`_build_executable_cache`). The prompt never blocks while the scan runs. Commands may briefly appear red on the first keystroke after startup until the cache finishes populating.
+
+### Autocompletion
+The completer integrates with `prompt_toolkit` and GNU readline. When the input buffer contains a single token, it queries built-in handlers and scans directories in `PATH` for executable files. When multiple tokens are present, it performs path completion against files and directories in the filesystem.
 
 ### History subsystem
 History management tracks entered commands in memory and coordinates with the `HISTFILE` environment variable. On startup, historical entries are loaded from disk if `HISTFILE` exists. On exit, current session history is saved.
@@ -97,7 +116,7 @@ History management tracks entered commands in memory and coordinates with the `H
 ## Requirements
 
 - Python 3.10 or higher
-- Optional: `readline` (built-in on Linux/macOS) or `pyreadline3` on Windows for interactive line editing
+- `prompt_toolkit` >= 3.0.0 (installed automatically via `uv sync` or `pip install`)
 
 ## Running the shell
 

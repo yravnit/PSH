@@ -10,6 +10,7 @@ import sys
 import os
 import re
 import io
+import threading
 from io import StringIO
 
 from prompt_toolkit import PromptSession
@@ -767,6 +768,43 @@ def is_builtin(command):
     return command in BUILTIN_HANDLERS
 
 
+_executable_cache = set()
+_executable_cache_path = None
+_executable_cache_lock = threading.Lock()
+_executable_cache_building = False
+
+
+def _build_executable_cache():
+    """Scan PATH directories in a background thread."""
+    global _executable_cache, _executable_cache_path, _executable_cache_building
+    current_path = os.environ.get("PATH", "")
+    result = get_executables()
+    with _executable_cache_lock:
+        _executable_cache = result
+        _executable_cache_path = current_path
+        _executable_cache_building = False
+
+
+def _cached_executables():
+    """Return the cached set of executable names.
+
+    If the cache is stale or empty, kicks off a background rebuild and
+    returns whatever is available right now (possibly empty). The prompt
+    never blocks.
+    """
+    global _executable_cache_building
+    current_path = os.environ.get("PATH", "")
+    with _executable_cache_lock:
+        if current_path == _executable_cache_path:
+            return _executable_cache
+        if _executable_cache_building:
+            return _executable_cache
+    _executable_cache_building = True
+    thread = threading.Thread(target=_build_executable_cache, daemon=True)
+    thread.start()
+    return _executable_cache
+
+
 OPERATORS = {"&&", "||", ";", "|", "&", ">", ">>", "1>", "1>>", "2>", "2>>"}
 
 
@@ -826,7 +864,7 @@ def _highlight_tokens(text):
             seen_command = True
             if value in BUILTIN_HANDLERS:
                 spans.append(("class:builtin", value))
-            elif find_executable_path(value):
+            elif value in _cached_executables():
                 spans.append(("class:command", value))
             else:
                 spans.append(("class:unknown_command", value))
