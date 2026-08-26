@@ -1,48 +1,67 @@
 # PSH
 
 [![CI](https://github.com/yravnit/PSH/actions/workflows/ci.yml/badge.svg)](https://github.com/yravnit/PSH/actions/workflows/ci.yml)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](#requirements)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A POSIX-compliant interactive command shell implemented in Python. Core execution uses standard library modules (`os`, `subprocess`, `sys`, `re`). The interactive prompt uses `prompt_toolkit` for live syntax highlighting and line editing.
 
 The shell parses user input, resolves system executables, executes built-in routines, orchestrates multi-stage process pipelines, manages asynchronous background jobs, evaluates conditional execution chains, tracks process exit statuses, and colors commands as you type.
 
+![PSH Demo](assets/psh.gif)
+
 ## Architecture and implementation
 
 ```mermaid
 flowchart LR
-    A["User Input (main.py)"]
+    A["User Input / REPL"] --> B["Parser"]
 
-    A --> B["parser.py"]
-    B --> C["parse_command"]
-    B --> D["split_command_chains"]
-    B --> E["expand_variables"]
-    B --> F["extract_redirection"]
-    B --> G["split_pipeline"]
+    B --> C["Tokenization"]
+    C --> D["Control Chains"]
+    D --> E["Variable Expansion"]
+    E --> F["Redirection"]
+    F --> G{"Execution"}
 
-    A --> H["executor.py"]
-    H --> I["execute_line"]
-    H --> J["execute_pipeline_or_command"]
-    H --> K["run_pipeline"]
-    H --> L["find_executable_path"]
-    H --> M["reap_jobs"]
+    G -->|Builtin| H["Builtin Dispatch"]
+    G -->|External| I["Executable Lookup"]
+    G -->|Pipeline| J["Pipeline Runner"]
+    G -->|Background &| K["Background Job"]
 
-    A --> N["builtins.py"]
-    N --> O["ShellContext (state)"]
-    N --> P["dispatch / is_builtin"]
-    N --> Q["history persistence"]
+    H --> L["ShellContext"]
+    L --> M["Builtins"]
+    
+    I --> N["subprocess"]
+    
+    J --> O["os.pipe()"]
+    O --> N
 
-    A --> R["highlight.py"]
-    R --> S["ShellLexer"]
-    R --> T["ExecutableCache"]
-    R --> U["_tokenize_for_highlight"]
+    K --> P["Job Table"]
+    P --> Q["reap_jobs / wait"]
+
+    M --> R["Exit Status"]
+    N --> R
+    O --> R
+    Q --> R
+
+    R --> S["last_exit_status"]
+    S --> D
+
+    A -.-> T["History"]
+    T --> L
+
+    A -.-> U["Syntax Highlighting"]
+    U --> V["ShellLexer"]
+    V --> W["ExecutableCache"]
+    W -.->|background scan| I
 ```
 
 ### Module layout
 
 | Module | Responsibility |
 |---|---|
-| `app/main.py` | REPL loop — creates `ShellContext`, wires modules, runs `session.prompt` |
-| `app/parser.py` | Pure tokenizer and variable expansion — no global state |
+| `app/main.py` | REPL loop: creates `ShellContext`, wires modules, runs `session.prompt` |
+| `app/parser.py` | Pure tokenizer and variable expansion with no global state |
 | `app/executor.py` | Process launching, pipeline orchestration, redirection |
 | `app/builtins.py` | Builtin handlers, `ShellContext` dataclass, history persistence |
 | `app/highlight.py` | `ShellLexer`, `ExecutableCache`, display tokenizer |
@@ -51,12 +70,12 @@ flowchart LR
 
 All mutable shell state lives in a single `ShellContext` instance created in `main()` and passed to every subsystem:
 
-- `jobs` — active background processes
-- `history` — command history list
-- `history_cursor` — append-fence for `history -a`
-- `variables` — shell-local variable store
-- `last_exit_status` — exit code of the most recently completed command
-- `_next_job_id` — monotonically increasing job ID counter
+- `jobs`: active background processes
+- `history`: command history list
+- `history_cursor`: append-fence for `history -a`
+- `variables`: shell-local variable store
+- `last_exit_status`: exit code of the most recently completed command
+- `_next_job_id`: monotonically increasing job ID counter
 
 ### Tokenizer and parser
 

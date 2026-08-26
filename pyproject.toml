@@ -1,6 +1,7 @@
 [project]
 name = "python-shell"
 version = "0.1.0"
+license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
     "prompt_toolkit>=3.0.0",
@@ -13,3 +14,8 @@ dev = [
 
 [tool.uv]
 package = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
