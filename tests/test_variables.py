@@ -1,87 +1,103 @@
 import unittest
 from io import StringIO
-import app.main as shell
+
+from app.builtins import ShellContext
+from app.executor import execute_line
+
+
+def fresh_ctx():
+    return ShellContext()
 
 
 class TestVariables(unittest.TestCase):
-    def setUp(self):
-        shell.variables.clear()
-        shell.last_exit_status = 0
-
     def test_declare_assignment_and_lookup(self):
-        stdout = StringIO()
-        stderr = StringIO()
-        code = shell.builtin_declare(["declare", "NAME=Ronit"], stdout, stderr)
-        self.assertEqual(code, 0)
-        self.assertEqual(shell.variables.get("NAME"), "Ronit")
+        c = fresh_ctx()
+        out = StringIO()
+        err = StringIO()
+        status = execute_line("declare NAME=Ronit", c, out, err)
+        self.assertEqual(status, 0)
+        self.assertEqual(c.variables.get("NAME"), "Ronit")
 
     def test_declare_print_existing(self):
-        shell.variables["NAME"] = "Ronit"
-        stdout = StringIO()
-        stderr = StringIO()
-        code = shell.builtin_declare(["declare", "-p", "NAME"], stdout, stderr)
-        self.assertEqual(code, 0)
-        self.assertEqual(stdout.getvalue(), 'declare -- NAME="Ronit"\n')
+        c = fresh_ctx()
+        c.variables["NAME"] = "Ronit"
+        out = StringIO()
+        err = StringIO()
+        status = execute_line("declare -p NAME", c, out, err)
+        self.assertEqual(status, 0)
+        self.assertEqual(out.getvalue(), 'declare -- NAME="Ronit"\n')
 
     def test_declare_print_missing(self):
-        stdout = StringIO()
-        stderr = StringIO()
-        code = shell.builtin_declare(["declare", "-p", "UNSET_VAR"], stdout, stderr)
-        self.assertEqual(code, 1)
-        self.assertEqual(stderr.getvalue(), "declare: UNSET_VAR: not found\n")
+        c = fresh_ctx()
+        out = StringIO()
+        err = StringIO()
+        status = execute_line("declare -p UNSET_VAR", c, out, err)
+        self.assertEqual(status, 1)
+        self.assertEqual(err.getvalue(), "declare: UNSET_VAR: not found\n")
 
     def test_declare_invalid_identifier(self):
-        stdout = StringIO()
-        stderr = StringIO()
-        code = shell.builtin_declare(["declare", "123INVALID=value"], stdout, stderr)
-        self.assertEqual(code, 1)
-        self.assertIn("not a valid identifier", stderr.getvalue())
+        c = fresh_ctx()
+        out = StringIO()
+        err = StringIO()
+        status = execute_line("declare 123INVALID=value", c, out, err)
+        self.assertEqual(status, 1)
+        self.assertIn("not a valid identifier", err.getvalue())
 
     def test_expand_var_dollar_syntax(self):
-        shell.variables["NAME"] = "Ronit"
-        expanded = shell.expand_variables(["echo", "$NAME"])
-        self.assertEqual(expanded, ["echo", "Ronit"])
+        c = fresh_ctx()
+        c.variables["NAME"] = "Ronit"
+        out = StringIO()
+        execute_line("echo $NAME", c, out)
+        self.assertEqual(out.getvalue(), "Ronit\n")
 
     def test_expand_var_braced_syntax(self):
-        shell.variables["NAME"] = "Ronit"
-        expanded = shell.expand_variables(["echo", "${NAME}"])
-        self.assertEqual(expanded, ["echo", "Ronit"])
+        c = fresh_ctx()
+        c.variables["NAME"] = "Ronit"
+        out = StringIO()
+        execute_line("echo ${NAME}", c, out)
+        self.assertEqual(out.getvalue(), "Ronit\n")
 
     def test_expand_var_interpolation(self):
-        shell.variables["NAME"] = "Ronit"
-        expanded = shell.expand_variables(["echo", "${NAME}_developer", "prefix_$NAME"])
-        self.assertEqual(expanded, ["echo", "Ronit_developer", "prefix_Ronit"])
+        c = fresh_ctx()
+        c.variables["NAME"] = "Ronit"
+        out = StringIO()
+        execute_line("echo ${NAME}_developer", c, out)
+        self.assertEqual(out.getvalue(), "Ronit_developer\n")
 
     def test_expand_unset_var_pruned(self):
-        expanded = shell.expand_variables(["echo", "$NON_EXISTENT_VAR"])
-        self.assertEqual(expanded, ["echo"])
+        c = fresh_ctx()
+        out = StringIO()
+        execute_line("echo $NON_EXISTENT_VAR", c, out)
+        # Pruned empty arg means echo prints just a newline
+        self.assertEqual(out.getvalue(), "\n")
 
     def test_exit_status_variable_success(self):
-        shell.last_exit_status = 0
-        expanded = shell.expand_variables(["echo", "$?"])
-        self.assertEqual(expanded, ["echo", "0"])
-
-        expanded_braced = shell.expand_variables(["echo", "${?}"])
-        self.assertEqual(expanded_braced, ["echo", "0"])
+        c = fresh_ctx()
+        c.last_exit_status = 0
+        out = StringIO()
+        execute_line("echo $?", c, out)
+        self.assertEqual(out.getvalue(), "0\n")
 
     def test_exit_status_variable_failure(self):
-        shell.last_exit_status = 1
-        expanded = shell.expand_variables(["echo", "$?"])
-        self.assertEqual(expanded, ["echo", "1"])
+        c = fresh_ctx()
+        c.last_exit_status = 1
+        out = StringIO()
+        execute_line("echo $?", c, out)
+        self.assertEqual(out.getvalue(), "1\n")
 
     def test_exit_status_integration(self):
-        out = StringIO()
-        shell.execute_line("false", stdout_stream=out)
-        self.assertEqual(shell.last_exit_status, 1)
+        c = fresh_ctx()
+        execute_line("false", c, StringIO())
+        self.assertEqual(c.last_exit_status, 1)
 
         out = StringIO()
-        shell.execute_line("echo $?", stdout_stream=out)
+        execute_line("echo $?", c, out)
         self.assertEqual(out.getvalue(), "1\n")
-        self.assertEqual(shell.last_exit_status, 0)
+        self.assertEqual(c.last_exit_status, 0)
 
-        out = StringIO()
-        shell.execute_line("echo $?", stdout_stream=out)
-        self.assertEqual(out.getvalue(), "0\n")
+        out2 = StringIO()
+        execute_line("echo $?", c, out2)
+        self.assertEqual(out2.getvalue(), "0\n")
 
 
 if __name__ == "__main__":

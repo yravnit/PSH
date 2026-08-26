@@ -6,94 +6,129 @@ A POSIX-compliant interactive command shell implemented in Python. Core executio
 
 The shell parses user input, resolves system executables, executes built-in routines, orchestrates multi-stage process pipelines, manages asynchronous background jobs, evaluates conditional execution chains, tracks process exit statuses, and colors commands as you type.
 
-## Architecture and Implementation
+## Architecture and implementation
 
 ```mermaid
 flowchart LR
-    A["User Input"] --> B["Parser"]
-    B --> C["Command Chains"]
-    C --> D["Variable Expansion"]
-    D --> E["Redirection"]
-    E --> F{"Command Type"}
+    A["User Input (main.py)"]
 
-    F -->|Builtin| G["Builtin Handlers"]
-    F -->|External| H["Executable Lookup"]
-    F -->|Pipeline| I["Pipeline Runner"]
-    F -->|Background| J["Background Jobs"]
+    A --> B["parser.py"]
+    B --> C["parse_command"]
+    B --> D["split_command_chains"]
+    B --> E["expand_variables"]
+    B --> F["extract_redirection"]
+    B --> G["split_pipeline"]
 
-    G --> K["Execute Command"]
-    H --> L["subprocess"]
-    I --> M["os.pipe() + Processes"]
-    J --> N["Job Table"]
+    A --> H["executor.py"]
+    H --> I["execute_line"]
+    H --> J["execute_pipeline_or_command"]
+    H --> K["run_pipeline"]
+    H --> L["find_executable_path"]
+    H --> M["reap_jobs"]
 
-    K --> O["Exit Status"]
-    L --> O
-    M --> O
+    A --> N["builtins.py"]
+    N --> O["ShellContext (state)"]
+    N --> P["dispatch / is_builtin"]
+    N --> Q["history persistence"]
 
-    O --> P["last_exit_status"]
-    P --> C
-
-    N --> Q["jobs / reap_jobs"]
-
-    A -.-> R["History + Autocomplete"]
-    A -.-> S["Syntax Highlighter"]
-    S --> T["Executable Cache"]
-    T -.->|background thread| H
+    A --> R["highlight.py"]
+    R --> S["ShellLexer"]
+    R --> T["ExecutableCache"]
+    R --> U["_tokenize_for_highlight"]
 ```
 
+### Module layout
+
+| Module | Responsibility |
+|---|---|
+| `app/main.py` | REPL loop — creates `ShellContext`, wires modules, runs `session.prompt` |
+| `app/parser.py` | Pure tokenizer and variable expansion — no global state |
+| `app/executor.py` | Process launching, pipeline orchestration, redirection |
+| `app/builtins.py` | Builtin handlers, `ShellContext` dataclass, history persistence |
+| `app/highlight.py` | `ShellLexer`, `ExecutableCache`, display tokenizer |
+
+### Shell state
+
+All mutable shell state lives in a single `ShellContext` instance created in `main()` and passed to every subsystem:
+
+- `jobs` — active background processes
+- `history` — command history list
+- `history_cursor` — append-fence for `history -a`
+- `variables` — shell-local variable store
+- `last_exit_status` — exit code of the most recently completed command
+- `_next_job_id` — monotonically increasing job ID counter
+
 ### Tokenizer and parser
-The lexer in `parse_command` processes input lines character-by-character using an explicit state machine. It handles:
+
+The lexer in `parse_command` (in `app/parser.py`) processes input lines character-by-character using an explicit state machine. It handles:
 - **Single quotes:** Literal preservation of all characters without escape processing.
 - **Double quotes:** Preserves whitespace and literal tokens while processing escaped double quotes (`\"`) and backslashes (`\\`).
 - **Escape sequences:** Unquoted backslashes escape spaces and special operators.
 - **Adjacent token concatenation:** Consecutive quoted and unquoted segments merge into single arguments (e.g. `'foo'"bar"\ baz` becomes `foobar baz`).
-- **Control operators:** Recognizes unquoted control tokens (`&&`, `||`, `;`, `|`, `&`) and redirection symbols (`>`, `>>`, `1>`, `1>>`, `2>`, `2>>`) while preserving operators contained within quotes.
+- **Control operators:** Recognizes unquoted control tokens (`&&`, `||`, `;`, `|`, `&`) and redirection symbols (`>`, `>>`, `1>`, `1>>`, `2>`, `2>>`).
 
 ### Control operators and conditional execution
-The execution driver in `split_command_chains` and `execute_line` structures command sequences by delimiter and enforces POSIX short-circuit semantics:
-- **`&&` (AND):** Executes the subsequent command stage only if the preceding stage terminated with an exit status of `0`.
-- **`||` (OR):** Executes the subsequent command stage only if the preceding stage terminated with a non-zero exit status.
-- **`;` (Sequential):** Executes adjacent commands sequentially regardless of preceding return codes.
+
+`split_command_chains` and `execute_line` (in `app/executor.py`) structure command sequences and enforce POSIX short-circuit semantics:
+- `&&` (AND): runs the next command only if the previous exited `0`.
+- `||` (OR): runs the next command only if the previous exited non-zero.
+- `;` (sequential): runs adjacent commands regardless of exit codes.
 
 ### Exit status model
-Process exit codes propagate through a unified execution model recorded in `last_exit_status`:
-- Built-in handlers return integer statuses (`0` for success, non-zero for operational errors).
-- External processes propagate their native exit codes via `subprocess.CompletedProcess.returncode`.
+
+Process exit codes propagate through a unified model stored in `ctx.last_exit_status`:
+- Builtin handlers return an integer status (`0` for success, non-zero for errors).
+- External processes propagate their native exit codes via `subprocess`.
 - Pipelines return the exit status of the terminal stage.
 - Unresolved executables yield status `127`.
-- The variable expansion engine resolves `$?` and `${?}` to the exit code of the most recently executed command.
+- Variable expansion resolves `$?` and `${?}` to `ctx.last_exit_status`.
 
 ### Stream-based builtin dispatch
-Built-in commands are registered in a lookup table (`BUILTIN_HANDLERS`) and follow a uniform function signature: `(parts, stdout_stream, stderr_stream) -> int`. This abstraction decouples builtins from `sys.stdout` and `sys.stderr`, allowing the shell to route outputs directly to files, memory buffers (`StringIO`), or pipeline file descriptors without mutating global state.
+
+Builtins are registered in `app/builtins.py` and follow a uniform signature:
+
+```python
+fn(args: list[str], ctx: ShellContext, stdout_stream, stderr_stream) -> int
+```
+
+This decouples builtins from `sys.stdout` and `sys.stderr`, allowing the shell to route output directly to files, memory buffers (`StringIO`), or pipeline file descriptors.
 
 Implemented builtins:
-- `cd`: Directory changes supporting absolute paths, relative paths, parent directory navigation (`..`), and home expansion (`~`).
-- `pwd`: Working directory reporting via `os.getcwd`.
-- `echo`: Parameter output with space normalization and newline termination.
-- `type`: Command inspection that differentiates between shell builtins, binaries discovered in `PATH`, and missing commands.
-- `true`: Always succeeds, returning status `0`.
-- `false`: Always fails, returning status `1`.
-- `declare`: Variable declaration and formatted inspection (`declare -p NAME`).
-- `jobs`: Active process table inspection with POSIX job markers (`+`, `-`).
-- `history`: Command log viewing, numerical limits (`history <n>`), and manual disk synchronization flags (`-r`, `-w`, `-a`).
-- `exit`: Session termination supporting numeric exit codes and history flushing.
+- `cd`: directory changes supporting absolute paths, relative paths, parent directory navigation (`..`), and full tilde expansion (`~`, `~/path`).
+- `pwd`: working directory reporting via `os.getcwd`.
+- `echo`: parameter output with space normalization and newline termination.
+- `type`: command inspection that differentiates between shell builtins, binaries in `PATH`, and missing commands.
+- `true`: always returns status `0`.
+- `false`: always returns status `1`.
+- `declare`: variable declaration and formatted inspection (`declare -p NAME`).
+- `jobs`: active process table inspection with POSIX job markers (`+`, `-`).
+- `wait`: blocks until background jobs finish. `wait` with no arguments waits for all jobs; `wait <pid>` waits for a specific one. Prints a `Done` notice for each job on completion.
+- `history`: command log viewing, numerical limits (`history <n>`), and disk synchronization flags (`-r`, `-w`, `-a`).
+- `exit`: session termination supporting numeric exit codes and history flushing.
 
 ### Pipeline orchestration
-The pipeline runner (`run_pipeline`) breaks piped commands (`|`) into individual execution units. It creates inter-process communication channels using `os.pipe()` and connects stdout of each stage to stdin of the subsequent stage. When a pipeline stage involves a Python builtin, output is captured into an in-memory byte buffer and written directly into the next stage's pipe descriptor, allowing seamless interoperability between builtins and external binaries.
+
+`run_pipeline` (in `app/executor.py`) breaks piped commands into individual execution units. It creates inter-process communication channels using `os.pipe()` and connects stdout of each stage to stdin of the next. When a pipeline stage is a builtin, output is captured into an in-memory byte buffer and written directly into the next stage's pipe descriptor, allowing seamless interoperability between builtins and external binaries.
 
 ### File redirection
-The redirection parser (`extract_redirection`) intercepts file descriptors before execution:
+
+`extract_redirection` (in `app/parser.py`) pulls redirection tokens out of the token list before execution. Variable expansion then runs on the redirect filenames, so `echo hi > $LOGFILE` correctly opens the file named by `$LOGFILE`.
+
+Supported redirection:
 - Standard output overwrite (`>`, `1>`) and append (`>>`, `1>>`).
 - Standard error overwrite (`2>`) and append (`2>>`).
 
 ### Process management and background jobs
-Commands ending with `&` execute asynchronously via `subprocess.Popen`. The shell records the process identifier, job number, and command line in an active job list. Before rendering each prompt, `reap_jobs` polls running processes via non-blocking `.poll()` calls, reports termination statuses, and reclaims process resources.
+
+Commands ending with `&` execute asynchronously via `subprocess.Popen`. Job IDs are assigned from a monotonically increasing counter in `ShellContext` so they never repeat after a job is reaped. Before rendering each prompt, `reap_jobs` polls running processes and reports termination. The `wait` builtin blocks the shell until one or all background jobs exit, printing a `Done` notice immediately rather than deferring it to the next prompt.
 
 ### Variable expansion
-Command parameters undergo variable expansion before execution. The expansion engine uses regex pattern matching to resolve `$VAR`, `${VAR}`, `$?`, and `${?}` notations against declared variables, exit codes, and environment variables. Arguments that evaluate to empty strings from unset variables are pruned.
+
+Command parameters undergo variable expansion before execution. `expand_variables` (in `app/parser.py`) uses regex matching to resolve `$VAR`, `${VAR}`, `$?`, and `${?}` against declared variables, the exit status, and environment variables. Arguments that expand to empty strings are pruned. Redirect filenames are also expanded.
 
 ### Syntax highlighting
-The shell colors input as you type using a custom `prompt_toolkit` lexer (`ShellLexer`). A separate tokenizer (`_tokenize_for_highlight`) walks the input buffer and classifies each span:
+
+The shell colors input as you type using `ShellLexer` in `app/highlight.py`. `ExecutableCache` scans `PATH` directories in a background thread to avoid blocking the prompt. The building flag is set inside the cache lock, preventing duplicate scans.
 
 | Token type | Color | Examples |
 |---|---|---|
@@ -103,15 +138,10 @@ The shell colors input as you type using a custom `prompt_toolkit` lexer (`Shell
 | Quoted strings | Yellow | `"hello"`, `'world'` |
 | Operators | Pink | `&&`, `\|`, `>` |
 | Variables | Purple | `$HOME`, `${?}` |
-| Arguments | Default | everything else |
-
-The set of valid executable names is built by scanning `PATH` directories in a background thread (`_build_executable_cache`). The prompt never blocks while the scan runs. Commands may briefly appear red on the first keystroke after startup until the cache finishes populating.
-
-### Autocompletion
-The completer integrates with `prompt_toolkit` and GNU readline. When the input buffer contains a single token, it queries built-in handlers and scans directories in `PATH` for executable files. When multiple tokens are present, it performs path completion against files and directories in the filesystem.
 
 ### History subsystem
-History management tracks entered commands in memory and coordinates with the `HISTFILE` environment variable. On startup, historical entries are loaded from disk if `HISTFILE` exists. On exit, current session history is saved.
+
+`ShellContext.history` is the canonical history list. `main.py` appends each accepted line to both `ctx.history` (read by the `history` builtin) and the prompt_toolkit `InMemoryHistory` (used for arrow-up recall), keeping them in sync. On startup, historical entries are loaded from disk if `HISTFILE` is set. On exit, current session history is written back.
 
 ## Requirements
 
@@ -120,13 +150,21 @@ History management tracks entered commands in memory and coordinates with the `H
 
 ## Running the shell
 
-Start the interactive REPL:
+Install dependencies and start the interactive REPL:
 
 ```sh
-python -m app.main
+uv run app/main.py
 ```
 
-Or execute via the shell runner:
+Or skip the `uv run` wrapper after syncing once:
+
+```sh
+uv sync
+.venv/bin/python -m app.main  # Linux/macOS
+.venv\Scripts\python -m app.main  # Windows
+```
+
+Or via the shell runner:
 
 ```sh
 ./your_program.sh
@@ -134,29 +172,23 @@ Or execute via the shell runner:
 
 ## Running tests
 
-The test suite contains targeted unit and integration suites under `tests/`:
+The test suite covers each module directly:
 
-- `tests/test_parser.py`: State-machine lexing, quote concatenation, escaping, and control operator isolation.
-- `tests/test_builtins.py`: Builtin routine dispatch, return codes, and filesystem navigation.
-- `tests/test_redirection.py`: Stream extraction and file overwrite/append behaviors.
-- `tests/test_variables.py`: Variable declaration, interpolation, scoping, and `$?` exit status inspection.
-- `tests/test_pipelines.py`: Inter-process pipe chaining and multi-stage exit code propagation.
-- `tests/test_control_operators.py`: Logical AND (`&&`), logical OR (`||`), and sequential (`;`) execution flows.
+- `tests/test_parser.py`: state-machine lexing, quote concatenation, escaping, control operator isolation, and variable expansion.
+- `tests/test_builtins.py`: builtin dispatch, return codes, filesystem navigation, tilde expansion, and history persistence.
+- `tests/test_redirection.py`: stream extraction, file overwrite/append, and variable redirect targets.
+- `tests/test_variables.py`: variable declaration, interpolation, scoping, and `$?` exit status inspection.
+- `tests/test_pipelines.py`: inter-process pipe chaining and multi-stage exit code propagation.
+- `tests/test_control_operators.py`: logical AND (`&&`), logical OR (`||`), and sequential (`;`) execution flows.
 
-Run the full test suite with unittest:
+Run the full test suite:
 
 ```sh
-python -m unittest
+uv run pytest
 ```
 
-Or using pytest:
+Or with plain Python:
 
 ```sh
-pytest
-```
-
-Or run an individual test module:
-
-```sh
-python -m unittest tests/test_control_operators.py
+python -m pytest
 ```

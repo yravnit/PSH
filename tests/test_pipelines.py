@@ -1,28 +1,31 @@
 import sys
 import unittest
 from io import StringIO
-import app.main as shell
+
+from app.builtins import ShellContext
+from app.executor import execute_line
+from app.parser import split_pipeline
+
+
+def fresh_ctx():
+    return ShellContext()
 
 
 class TestPipelines(unittest.TestCase):
     def test_split_pipeline(self):
         parts = ["cat", "file.txt", "|", "grep", "hello", "|", "wc", "-l"]
-        commands = shell.split_pipeline(parts)
+        commands = split_pipeline(parts)
         self.assertEqual(commands, [
             ["cat", "file.txt"],
             ["grep", "hello"],
             ["wc", "-l"],
         ])
 
-    def test_run_builtin_capture(self):
-        output = shell.run_builtin_capture(["echo", "hello world"])
-        self.assertEqual(output.decode(), "hello world\n")
-
     def test_pipeline_builtin_to_external(self):
         py = sys.executable.replace("\\", "/")
         cmd = f'echo hello | "{py}" -c "import sys; print(sys.stdin.read().strip().upper())"'
         out = StringIO()
-        status = shell.execute_line(cmd, stdout_stream=out)
+        status = execute_line(cmd, fresh_ctx(), stdout_stream=out)
         self.assertEqual(status, 0)
         self.assertEqual(out.getvalue().strip(), "HELLO")
 
@@ -34,7 +37,7 @@ class TestPipelines(unittest.TestCase):
             f'"{py}" -c "import sys; print(len(sys.stdin.read()))"'
         )
         out = StringIO()
-        status = shell.execute_line(cmd, stdout_stream=out)
+        status = execute_line(cmd, fresh_ctx(), stdout_stream=out)
         self.assertEqual(status, 0)
         self.assertEqual(out.getvalue().strip(), "5")
 
@@ -42,9 +45,10 @@ class TestPipelines(unittest.TestCase):
         py = sys.executable.replace("\\", "/")
         cmd = f'echo test | "{py}" -c "import sys; sys.exit(3)"'
         out = StringIO()
-        status = shell.execute_line(cmd, stdout_stream=out)
+        c = fresh_ctx()
+        status = execute_line(cmd, c, stdout_stream=out)
         self.assertEqual(status, 3)
-        self.assertEqual(shell.last_exit_status, 3)
+        self.assertEqual(c.last_exit_status, 3)
 
 
 if __name__ == "__main__":

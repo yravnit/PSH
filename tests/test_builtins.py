@@ -4,15 +4,29 @@ import tempfile
 import unittest
 from io import StringIO
 
-import app.main as shell
+from app.builtins import (
+    ShellContext,
+    builtin_echo,
+    builtin_pwd,
+    builtin_type,
+    builtin_cd,
+    builtin_jobs,
+    builtin_exit,
+    builtin_history,
+    builtin_declare,
+    builtin_true,
+    builtin_false,
+)
+
+
+def ctx():
+    """Return a fresh ShellContext for each test."""
+    return ShellContext()
 
 
 class TestBuiltins(unittest.TestCase):
     def setUp(self):
         self.original_cwd = os.getcwd()
-        shell.history.clear()
-        shell.history_cursor = 0
-        shell.variables.clear()
 
     def tearDown(self):
         os.chdir(self.original_cwd)
@@ -21,14 +35,14 @@ class TestBuiltins(unittest.TestCase):
     def test_echo_basic(self):
         stdout = StringIO()
         stderr = StringIO()
-        code = shell.builtin_echo(["echo", "hello", "world"], stdout, stderr)
+        code = builtin_echo(["echo", "hello", "world"], ctx(), stdout, stderr)
         self.assertEqual(code, 0)
         self.assertEqual(stdout.getvalue(), "hello world\n")
 
     def test_echo_empty(self):
         stdout = StringIO()
         stderr = StringIO()
-        code = shell.builtin_echo(["echo"], stdout, stderr)
+        code = builtin_echo(["echo"], ctx(), stdout, stderr)
         self.assertEqual(code, 0)
         self.assertEqual(stdout.getvalue(), "\n")
 
@@ -36,7 +50,7 @@ class TestBuiltins(unittest.TestCase):
     def test_pwd(self):
         stdout = StringIO()
         stderr = StringIO()
-        code = shell.builtin_pwd(["pwd"], stdout, stderr)
+        code = builtin_pwd(["pwd"], ctx(), stdout, stderr)
         self.assertEqual(code, 0)
         self.assertEqual(stdout.getvalue().strip(), os.getcwd())
 
@@ -45,7 +59,7 @@ class TestBuiltins(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             stdout = StringIO()
             stderr = StringIO()
-            code = shell.builtin_cd(["cd", tmpdir], stdout, stderr)
+            code = builtin_cd(["cd", tmpdir], ctx(), stdout, stderr)
             self.assertEqual(code, 0)
             self.assertEqual(os.path.realpath(os.getcwd()), os.path.realpath(tmpdir))
             os.chdir(self.original_cwd)
@@ -58,7 +72,7 @@ class TestBuiltins(unittest.TestCase):
 
             stdout = StringIO()
             stderr = StringIO()
-            code = shell.builtin_cd(["cd", "sub"], stdout, stderr)
+            code = builtin_cd(["cd", "sub"], ctx(), stdout, stderr)
             self.assertEqual(code, 0)
             self.assertEqual(os.path.realpath(os.getcwd()), os.path.realpath(subdir))
             os.chdir(self.original_cwd)
@@ -71,7 +85,7 @@ class TestBuiltins(unittest.TestCase):
 
             stdout = StringIO()
             stderr = StringIO()
-            code = shell.builtin_cd(["cd", ".."], stdout, stderr)
+            code = builtin_cd(["cd", ".."], ctx(), stdout, stderr)
             self.assertEqual(code, 0)
             self.assertEqual(os.path.realpath(os.getcwd()), os.path.realpath(tmpdir))
             os.chdir(self.original_cwd)
@@ -79,22 +93,58 @@ class TestBuiltins(unittest.TestCase):
     def test_cd_home_tilde(self):
         with tempfile.TemporaryDirectory() as fake_home:
             old_home = os.environ.get("HOME", "")
+            old_userprofile = os.environ.get("USERPROFILE", "")
             os.environ["HOME"] = fake_home
+            os.environ["USERPROFILE"] = fake_home
             try:
                 stdout = StringIO()
                 stderr = StringIO()
-                code = shell.builtin_cd(["cd", "~"], stdout, stderr)
+                code = builtin_cd(["cd", "~"], ctx(), stdout, stderr)
                 self.assertEqual(code, 0)
                 self.assertEqual(os.path.realpath(os.getcwd()), os.path.realpath(fake_home))
                 os.chdir(self.original_cwd)
             finally:
                 if old_home:
                     os.environ["HOME"] = old_home
+                if old_userprofile:
+                    os.environ["USERPROFILE"] = old_userprofile
+
+    def test_cd_tilde_with_path(self):
+        """cd ~/subdir should expand to home + subdir, not literal ~/subdir."""
+        with tempfile.TemporaryDirectory() as fake_home:
+            subdir = os.path.join(fake_home, "sub")
+            os.makedirs(subdir)
+            old_home = os.environ.get("HOME", "")
+            old_userprofile = os.environ.get("USERPROFILE", "")
+            os.environ["HOME"] = fake_home
+            os.environ["USERPROFILE"] = fake_home
+            try:
+                stdout = StringIO()
+                stderr = StringIO()
+                code = builtin_cd(["cd", "~/sub"], ctx(), stdout, stderr)
+                self.assertEqual(code, 0)
+                self.assertEqual(os.path.realpath(os.getcwd()), os.path.realpath(subdir))
+                os.chdir(self.original_cwd)
+            finally:
+                if old_home:
+                    os.environ["HOME"] = old_home
+                if old_userprofile:
+                    os.environ["USERPROFILE"] = old_userprofile
+
+    def test_cd_no_args_uses_home(self):
+        """cd with no arguments changes to the home directory."""
+        home = os.path.expanduser("~")
+        stdout = StringIO()
+        stderr = StringIO()
+        code = builtin_cd(["cd"], ctx(), stdout, stderr)
+        self.assertEqual(code, 0)
+        self.assertEqual(os.path.realpath(os.getcwd()), os.path.realpath(home))
+        os.chdir(self.original_cwd)
 
     def test_cd_non_existent_directory(self):
         stdout = StringIO()
         stderr = StringIO()
-        code = shell.builtin_cd(["cd", "/non_existent_path_xyz_123"], stdout, stderr)
+        code = builtin_cd(["cd", "/non_existent_path_xyz_123"], ctx(), stdout, stderr)
         self.assertEqual(code, 1)
         self.assertEqual(stderr.getvalue(), "cd: /non_existent_path_xyz_123: No such file or directory\n")
 
@@ -103,14 +153,14 @@ class TestBuiltins(unittest.TestCase):
         for cmd in ["echo", "exit", "type", "pwd", "cd", "true", "false", "declare", "jobs", "history"]:
             stdout = StringIO()
             stderr = StringIO()
-            code = shell.builtin_type(["type", cmd], stdout, stderr)
+            code = builtin_type(["type", cmd], ctx(), stdout, stderr)
             self.assertEqual(code, 0)
             self.assertEqual(stdout.getvalue(), f"{cmd} is a shell builtin\n")
 
     def test_type_not_found(self):
         stdout = StringIO()
         stderr = StringIO()
-        code = shell.builtin_type(["type", "non_existent_command_123"], stdout, stderr)
+        code = builtin_type(["type", "non_existent_command_123"], ctx(), stdout, stderr)
         self.assertEqual(code, 1)
         self.assertEqual(stdout.getvalue(), "non_existent_command_123: not found\n")
 
@@ -126,7 +176,7 @@ class TestBuiltins(unittest.TestCase):
             try:
                 stdout = StringIO()
                 stderr = StringIO()
-                code = shell.builtin_type(["type", "my_custom_exe"], stdout, stderr)
+                code = builtin_type(["type", "my_custom_exe"], ctx(), stdout, stderr)
                 self.assertEqual(code, 0)
                 self.assertEqual(stdout.getvalue(), f"my_custom_exe is {fake_bin}\n")
             finally:
@@ -136,13 +186,13 @@ class TestBuiltins(unittest.TestCase):
     def test_true_builtin(self):
         stdout = StringIO()
         stderr = StringIO()
-        code = shell.builtin_true(["true"], stdout, stderr)
+        code = builtin_true(["true"], ctx(), stdout, stderr)
         self.assertEqual(code, 0)
 
     def test_false_builtin(self):
         stdout = StringIO()
         stderr = StringIO()
-        code = shell.builtin_false(["false"], stdout, stderr)
+        code = builtin_false(["false"], ctx(), stdout, stderr)
         self.assertEqual(code, 1)
 
     # --- exit ---
@@ -150,31 +200,33 @@ class TestBuiltins(unittest.TestCase):
         stdout = StringIO()
         stderr = StringIO()
         with self.assertRaises(SystemExit) as cm:
-            shell.builtin_exit(["exit"], stdout, stderr)
+            builtin_exit(["exit"], ctx(), stdout, stderr)
         self.assertEqual(cm.exception.code, 0)
 
     def test_exit_with_code(self):
         stdout = StringIO()
         stderr = StringIO()
         with self.assertRaises(SystemExit) as cm:
-            shell.builtin_exit(["exit", "42"], stdout, stderr)
+            builtin_exit(["exit", "42"], ctx(), stdout, stderr)
         self.assertEqual(cm.exception.code, 42)
 
     # --- history ---
     def test_history_display(self):
-        shell.history.extend(["echo one", "pwd", "exit"])
+        c = ctx()
+        c.history.extend(["echo one", "pwd", "exit"])
         stdout = StringIO()
         stderr = StringIO()
-        code = shell.builtin_history(["history"], stdout, stderr)
+        code = builtin_history(["history"], c, stdout, stderr)
         self.assertEqual(code, 0)
         lines = [line.strip() for line in stdout.getvalue().strip().split("\n")]
         self.assertEqual(lines, ["1  echo one", "2  pwd", "3  exit"])
 
     def test_history_limit(self):
-        shell.history.extend(["cmd1", "cmd2", "cmd3", "cmd4"])
+        c = ctx()
+        c.history.extend(["cmd1", "cmd2", "cmd3", "cmd4"])
         stdout = StringIO()
         stderr = StringIO()
-        code = shell.builtin_history(["history", "2"], stdout, stderr)
+        code = builtin_history(["history", "2"], c, stdout, stderr)
         self.assertEqual(code, 0)
         lines = [line.strip() for line in stdout.getvalue().strip().split("\n")]
         self.assertEqual(lines, ["3  cmd3", "4  cmd4"])
@@ -184,17 +236,18 @@ class TestBuiltins(unittest.TestCase):
             filepath = f.name
 
         try:
-            shell.history.extend(["echo a", "echo b"])
-            code_w = shell.builtin_history(["history", "-w", filepath], StringIO(), StringIO())
+            c = ctx()
+            c.history.extend(["echo a", "echo b"])
+            code_w = builtin_history(["history", "-w", filepath], c, StringIO(), StringIO())
             self.assertEqual(code_w, 0)
 
-            shell.history.clear()
-            code_r = shell.builtin_history(["history", "-r", filepath], StringIO(), StringIO())
+            c2 = ctx()
+            code_r = builtin_history(["history", "-r", filepath], c2, StringIO(), StringIO())
             self.assertEqual(code_r, 0)
-            self.assertEqual(shell.history, ["echo a", "echo b"])
+            self.assertEqual(c2.history, ["echo a", "echo b"])
 
-            shell.history.append("echo c")
-            code_a = shell.builtin_history(["history", "-a", filepath], StringIO(), StringIO())
+            c2.history.append("echo c")
+            code_a = builtin_history(["history", "-a", filepath], c2, StringIO(), StringIO())
             self.assertEqual(code_a, 0)
 
             with open(filepath, "r") as f:
